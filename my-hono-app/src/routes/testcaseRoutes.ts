@@ -1,19 +1,22 @@
-import { Testcase } from "../models/Testcase";
 import { Hono } from "hono";
+import {
+    allTestcases,
+    createTestCase,
+    getTestCase,
+    updateTestCase,
+    deleteTestCase,
+    testCaseCreator,
+} from "../controllers/testcaseController";
 
 const router = new Hono();
 
-router.post('/testcases/:problemId', async (c) => {
-    const { problemId } = c.req.param();
-    const { input, output, description, createdBy } = await c.req.json();
-    const testcase = new Testcase({ problem: problemId, input, output, description, createdBy });
-    await testcase.save();
-    return c.json(testcase);
-})
+router.get("/problems/:id/testcases", allTestcases);
+router.post("/problems/:id/testcases", createTestCase);
 
-router.get('/testcases/:problemId', async (c) => {
-    const { problemId } = c.req.param();
-    const testcases = await Testcase.find({ problem: problemId });
-    return c.json(testcases);
-})
+// Static route before /:id to avoid conflict
+router.get("/testcases/:id/creator", testCaseCreator);
+router.get("/testcases/:id", getTestCase);
+router.put("/testcases/:id", updateTestCase);
+router.delete("/testcases/:id", deleteTestCase);
 
+export default router;

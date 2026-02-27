@@ -1,41 +1,30 @@
-import { Hono } from 'hono';
-import { Problem } from '../models/Problem';
+import { Hono } from "hono";
+import {
+    getAllProblems,
+    getProblemById,
+    getProblemsByDifficulty,
+    getProblemsByTags,
+    createProblem,
+    updateProblem,
+    deleteProblem,
+    runProblem,
+} from "../controllers/problemController";
+import { executeProblem, submitProblem } from "../controllers/submissionController";
+
 const router = new Hono();
 
-router.get('/problems', async (c) => {
-    const data = await c.req.json();
-    // Here you would typically save the problem to the database
-    // For demonstration, we'll just return the received data
+// Static filter routes must come before /:id to avoid conflict
+router.get("/problems/filter/difficulty", getProblemsByDifficulty);
+router.get("/problems/filter/tags", getProblemsByTags);
 
-    try {
-        const problems = await Problem.find();
-        return c.json(problems, 200);
-    }
-    catch (error) {
-        return c.json({ message: 'Error fetching problems', error }, 500);
-    }
-})
+router.get("/problems", getAllProblems);
+router.get("/problems/:id", getProblemById);
+router.post("/problems", createProblem);
+router.put("/problems/:id", updateProblem);
+router.delete("/problems/:id", deleteProblem);
 
-router.post('/problems', async (c) => {
-    const data = await c.req.json();
-    // Here you would typically save the problem to the database
-    // For demonstration, we'll just return the received data
-    const problem = await Problem.create(data);
-    return c.json({ message: 'Problem created successfully', problem }, 201);
-})
+router.post("/problems/:id/run", runProblem);
+router.post("/problems/:id/execute", executeProblem);
+router.post("/problems/:id/submit", submitProblem);
 
-router.get('/problems/:id', async (c) => {
-    const { id } = c.req.param();
-    try {
-        const problem = await Problem.findById(id);
-        if (!problem) {
-            return c.json({ message: 'Problem not found' }, 404);
-        }
-        return c.json(problem, 200);
-    } catch (error) {
-        return c.json({ message: 'Error fetching problem', error }, 500);
-    }
-})
-
-router.get()
 export default router;

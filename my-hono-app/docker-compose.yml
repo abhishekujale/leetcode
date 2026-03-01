@@ -1,0 +1,130 @@
+version: "3.9"
+
+# ── Shared environment blocks ──────────────────────────────────────────────
+x-common-env: &common-env
+  MONGODB_URI:  mongodb://mongodb:27017/leetcode
+  REDIS_HOST:   redis
+  REDIS_PORT:   "6379"
+  JWT_SECRET:   "${JWT_SECRET:-change-me-in-production}"
+  FRONTEND_URL: "http://localhost:3000"
+
+x-service-base: &service-base
+  build: .
+  restart: unless-stopped
+  depends_on:
+    mongodb:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+
+# ── Services ──────────────────────────────────────────────────────────────
+services:
+
+  # ── Infrastructure ────────────────────────────────────────────────────
+  mongodb:
+    image: mongo:7
+    ports: ["27017:27017"]
+    volumes:
+      - mongodb_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── API Gateway (public entry point) ──────────────────────────────────
+  gateway:
+    <<: *service-base
+    command: npx tsx services/gateway/server.ts
+    ports: ["8787:8787"]
+    environment:
+      PORT: "8787"
+      FRONTEND_URL:            "http://localhost:3000"
+      AUTH_SERVICE_URL:        "http://auth-service:3001"
+      PROBLEM_SERVICE_URL:     "http://problem-service:3002"
+      SUBMISSION_SERVICE_URL:  "http://submission-service:3004"
+      DISCUSSION_SERVICE_URL:  "http://discussion-service:3005"
+      LEADERBOARD_SERVICE_URL: "http://leaderboard-service:3006"
+    depends_on:
+      - auth-service
+      - problem-service
+      - submission-service
+      - discussion-service
+      - leaderboard-service
+
+  # ── Auth Service (register / login / user CRUD) ────────────────────────
+  auth-service:
+    <<: *service-base
+    command: npx tsx services/auth-service/server.ts
+    ports: ["3001:3001"]
+    environment:
+      <<: *common-env
+      PORT: "3001"
+
+  # ── Problem Service (problems + testcases + run) ───────────────────────
+  problem-service:
+    <<: *service-base
+    command: npx tsx services/problem-service/server.ts
+    ports: ["3002:3002"]
+    environment:
+      <<: *common-env
+      PORT: "3002"
+
+  # ── Execution Service (BullMQ worker, scales horizontally) ────────────
+  execution-service:
+    <<: *service-base
+    command: npx tsx services/execution-service/server.ts
+    ports: ["3003:3003"]
+    environment:
+      <<: *common-env
+      PORT: "3003"
+    # Scale workers: docker compose up --scale execution-service=3
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          memory: 512M
+
+  # ── Submission Service (submit / execute / SSE polling) ────────────────
+  submission-service:
+    <<: *service-base
+    command: npx tsx services/submission-service/server.ts
+    ports: ["3004:3004"]
+    environment:
+      <<: *common-env
+      PORT: "3004"
+
+  # ── Discussion Service ──────────────────────────────────────────────────
+  discussion-service:
+    <<: *service-base
+    command: npx tsx services/discussion-service/server.ts
+    ports: ["3005:3005"]
+    environment:
+      <<: *common-env
+      PORT: "3005"
+
+  # ── Leaderboard Service ─────────────────────────────────────────────────
+  leaderboard-service:
+    <<: *service-base
+    command: npx tsx services/leaderboard-service/server.ts
+    ports: ["3006:3006"]
+    environment:
+      <<: *common-env
+      PORT: "3006"
+
+# ── Volumes ───────────────────────────────────────────────────────────────
+volumes:
+  mongodb_data:
+  redis_data:

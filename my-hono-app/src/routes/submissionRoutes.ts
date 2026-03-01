@@ -5,12 +5,14 @@ import {
     getSubmissionsByProblem,
     getSubmissionsByUser,
     getSubmissionsByUserByProblem,
+    pollSubmissionStatus,
 } from "../controllers/submissionController";
 
 const router = new Hono();
 
 router.get("/submissions", getAllSubmissionsBySorted);
 router.get("/submissions/:id", getSubmissionById);
+router.get("/submissions/:id/status", pollSubmissionStatus);
 
 router.get("/problems/:id/submissions", getSubmissionsByProblem);
 

@@ -2,15 +2,34 @@
   "name": "my-hono-app",
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev",
+    "dev": "tsx watch server.ts",
+    "start": "tsx server.ts",
+    "build": "tsc --noEmit",
     "deploy": "wrangler deploy --minify",
-    "cf-typegen": "wrangler types --env-interface CloudflareBindings"
+    "cf-typegen": "wrangler types --env-interface CloudflareBindings",
+
+    "svc:gateway":     "tsx services/gateway/server.ts",
+    "svc:auth":        "tsx services/auth-service/server.ts",
+    "svc:problems":    "tsx services/problem-service/server.ts",
+    "svc:execution":   "tsx services/execution-service/server.ts",
+    "svc:submissions": "tsx services/submission-service/server.ts",
+    "svc:discussions": "tsx services/discussion-service/server.ts",
+    "svc:leaderboard": "tsx services/leaderboard-service/server.ts",
+
+    "docker:up":    "docker compose up --build",
+    "docker:down":  "docker compose down",
+    "docker:scale": "docker compose up --scale execution-service=3"
   },
   "dependencies": {
+    "@hono/node-server": "^1.19.9",
+    "bullmq": "^5.70.1",
     "dotenv": "^17.3.1",
     "hono": "^4.11.10",
+    "ioredis": "^5.10.0",
     "mongo": "^0.1.0",
-    "mongoose": "^9.2.1"
+    "mongoose": "^9.2.1",
+    "tsx": "^4.21.0",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/node": "^25.3.0",

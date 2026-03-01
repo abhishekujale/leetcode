@@ -4,6 +4,7 @@ import {
     getDiscussionById,
     getDiscussionByUser,
     getDiscussionbyUserByProblem,
+    createDiscussionProblem,
     createDiscussion,
     updateDiscussion,
     deleteDiscussion,
@@ -26,7 +27,8 @@ router.put("/discussions/:id", updateDiscussion);
 router.delete("/discussions/:id", deleteDiscussion);
 
 router.get("/problems/:id/discussions", getAllDiscussionByProblem);
-router.post("/problems/:id/discussions", createDiscussion);
+router.post("/problems/:id/discussions", createDiscussionProblem);
+router.post("/discussions", createDiscussion);
 
 router.get("/users/:id/discussions", getDiscussionByUser);
 router.get("/users/:userId/problems/:problemId/discussions", getDiscussionbyUserByProblem);

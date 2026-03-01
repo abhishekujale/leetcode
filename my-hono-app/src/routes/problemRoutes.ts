@@ -4,9 +4,6 @@ import {
     getProblemById,
     getProblemsByDifficulty,
     getProblemsByTags,
-    createProblem,
-    updateProblem,
-    deleteProblem,
     runProblem,
 } from "../controllers/problemController";
 import { executeProblem, submitProblem } from "../controllers/submissionController";
@@ -19,9 +16,6 @@ router.get("/problems/filter/tags", getProblemsByTags);
 
 router.get("/problems", getAllProblems);
 router.get("/problems/:id", getProblemById);
-router.post("/problems", createProblem);
-router.put("/problems/:id", updateProblem);
-router.delete("/problems/:id", deleteProblem);
 
 router.post("/problems/:id/run", runProblem);
 router.post("/problems/:id/execute", executeProblem);

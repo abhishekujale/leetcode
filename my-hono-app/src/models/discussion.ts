@@ -6,7 +6,7 @@ const discussionSchema = new mongoose.Schema({
     createdAt: { type: Date, default: Date.now },
     updatedAt: { type: Date, default: Date.now },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-    problem: { type: mongoose.Schema.Types.ObjectId, ref: "Problem", required: true },
+    problem: { type: mongoose.Schema.Types.ObjectId, ref: "Problem" },
 });
 
 export const Discussion = mongoose.model("Discussion", discussionSchema);

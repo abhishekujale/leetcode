@@ -27,6 +27,8 @@ export const createProblemSchema = z.object({
   tags: z.array(z.string()).default([]),
   constraits: z.string().optional(),
   createdBy: z.string().min(1),
+  boilerplate: z.record(z.string(), z.string()).optional(),
+  driverCode: z.record(z.string(), z.string()).optional(),
 })
 
 export const updateProblemSchema = createProblemSchema.partial()

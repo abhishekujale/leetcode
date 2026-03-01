@@ -12,6 +12,7 @@ const userSchema = new mongoose.Schema({
     submissions: [{ type: mongoose.Schema.Types.ObjectId, ref: "Submission" }],
     xAccount: { type: String },
     linkedInAccount: { type: String },
+    isAdmin: { type: Boolean, default: false },
     createdAt: { type: Date, default: Date.now },
     updatedAt: { type: Date, default: Date.now },
 });

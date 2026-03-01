@@ -60,3 +60,19 @@ export async function cacheDel(key: string): Promise<void> {
     await r.del(key)
   } catch {}
 }
+
+// Delete all keys matching a glob pattern (e.g. "problems:*")
+export async function cacheDelPattern(pattern: string): Promise<void> {
+  const r = getRedis()
+  if (!r) return
+  try {
+    const keys: string[] = []
+    let cursor = "0"
+    do {
+      const [next, batch] = await r.scan(cursor, "MATCH", pattern, "COUNT", 100)
+      cursor = next
+      keys.push(...batch)
+    } while (cursor !== "0")
+    if (keys.length > 0) await r.del(...keys)
+  } catch {}
+}

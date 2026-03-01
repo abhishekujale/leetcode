@@ -13,6 +13,7 @@ import testcaseRoutes from "./routes/testcaseRoutes.js"
 import submissionRoutes from "./routes/submissionRoutes.js"
 import discussionRoutes from "./routes/discussionRoutes.js"
 import leaderboardRoutes from "./routes/leaderboardRoutes.js"
+import adminRoutes from "./routes/adminRoutes.js"
 
 const app = new Hono()
 
@@ -78,6 +79,9 @@ app.route("/api", testcaseRoutes)
 app.route("/api", submissionRoutes)
 app.route("/api", discussionRoutes)
 app.route("/api", leaderboardRoutes)
+
+// ── Admin routes (JWT isAdmin required) ────────────────────────────────────
+app.route("/api/admin", adminRoutes)
 
 // ── 404 handler ────────────────────────────────────────────────────────────
 app.notFound((c) => c.json({ message: `Route ${c.req.method} ${c.req.path} not found` }, 404))

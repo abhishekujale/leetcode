@@ -63,11 +63,16 @@ export function initQueue(): void {
 
         await job.updateProgress(20)
 
+        // Fetch driver code for this language from the problem
+        const problemDoc = await Problem.findById(problemId).select("driverCode difficulty").lean()
+        const driverCode = ((problemDoc as any)?.driverCode as Record<string, string> | undefined)?.[language]
+
         // Execute code
         const result = await executeCode(
           code,
           language as Language,
-          testcases.map((tc) => ({ input: tc.input, output: tc.output }))
+          testcases.map((tc) => ({ input: tc.input, output: tc.output })),
+          driverCode
         )
 
         await job.updateProgress(90)

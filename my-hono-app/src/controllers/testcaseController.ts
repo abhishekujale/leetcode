@@ -20,7 +20,7 @@ export const createTestCase = async (c: any) => {
         const testcase = await Testcase.create({ ...data, problem: id });
         return c.json(testcase, 201);
     } catch (error) {
-        return c.json({ message: "Error creating testcase" }, 500);
+        return c.json({ message: "Error creating testcase: " + error }, 500);
     }
 }
 

@@ -34,6 +34,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             email: data.user.email,
             name: data.user.username,
             accessToken: data.token,
+            isAdmin: data.user.isAdmin ?? false,
           }
         } catch {
           return null
@@ -47,11 +48,41 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
   ],
   callbacks: {
+    async signIn({ user, account }) {
+      // For Google OAuth: find-or-create the user in our backend and swap Google's
+      // UUID for our MongoDB ObjectId + a backend JWT.
+      if (account?.provider === "google") {
+        try {
+          const res = await fetch(`${API_URL}/api/auth/oauth`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              email: user.email,
+              name: user.name,
+              provider: "google",
+              providerId: user.id,
+            }),
+          })
+          if (!res.ok) return false
+          const data = await res.json()
+          // Overwrite Google's UUID with our MongoDB ObjectId
+          user.id = data.user.id
+          ;(user as typeof user & { accessToken?: string; username?: string; isAdmin?: boolean }).accessToken = data.token
+          ;(user as typeof user & { username?: string }).username = data.user.username
+          ;(user as typeof user & { isAdmin?: boolean }).isAdmin = data.user.isAdmin ?? false
+        } catch {
+          return false
+        }
+      }
+      return true
+    },
+
     async jwt({ token, user }) {
       if (user) {
         token.id = user.id
         token.accessToken = (user as typeof user & { accessToken?: string }).accessToken
-        token.username = user.name ?? undefined
+        token.username = (user as typeof user & { username?: string }).username ?? user.name ?? undefined
+        token.isAdmin = (user as typeof user & { isAdmin?: boolean }).isAdmin ?? false
       }
       return token
     },
@@ -61,6 +92,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           token.username as string
         ; (session as typeof session & { accessToken?: string }).accessToken =
           token.accessToken as string
+        ; (session.user as typeof session.user & { isAdmin?: boolean }).isAdmin =
+          token.isAdmin as boolean
       return session
     },
   },

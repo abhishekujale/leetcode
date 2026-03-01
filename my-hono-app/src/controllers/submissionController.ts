@@ -86,22 +86,23 @@ export const executeProblem = async (c: Context) => {
     }
     const { code, language } = parsed.data
 
-    const problem = await Problem.findById(id).populate("sampleTestcases")
+    const [problem, sampleTestcases] = await Promise.all([
+      Problem.findById(id).lean(),
+      Testcase.find({ problem: id }).limit(2).select("input output").lean(),
+    ])
     if (!problem) return c.json({ message: "Problem not found" }, 404)
 
-    const testcases = (problem.sampleTestcases as Array<{ input: string; output: string }>).map(
-      (tc) => ({ input: tc.input, output: tc.output })
-    )
+    // if (sampleTestcases.length === 0) {
+    //   return c.json({ message: "No sample testcases available for this problem" }, 422)
+    // }
 
-    if (testcases.length === 0) {
-      return c.json({ message: "No sample testcases available for this problem" }, 422)
-    }
+    const driverCode = ((problem as any).driverCode as Record<string, string> | undefined)?.[language]
 
-    const result = await executeCode(code, language as Language, testcases)
+    const result = await executeCode(code, language as Language, sampleTestcases.map((tc) => ({ input: tc.input, output: tc.output })), driverCode)
     return c.json(result, 200)
   } catch (error) {
     console.error("executeProblem error:", error)
-    return c.json({ message: "Error executing code" }, 500)
+    return c.json({ message: "Error executing code + " + error }, 500)
   }
 }
 
@@ -132,6 +133,8 @@ export const submitProblem = async (c: Context) => {
 
     const submissionId = submission._id.toString()
 
+    const driverCode = ((problem as any).driverCode as Record<string, string> | undefined)?.[language]
+
     // Try async queue first; fall back to synchronous execution
     const queued = await enqueueExecution({ submissionId, code, language, problemId: id, userId: createdBy })
 
@@ -143,7 +146,8 @@ export const submitProblem = async (c: Context) => {
         const result = await executeCode(
           code,
           language as Language,
-          testcases.map((tc) => ({ input: tc.input, output: tc.output }))
+          testcases.map((tc) => ({ input: tc.input, output: tc.output })),
+          driverCode
         )
         await Submission.findByIdAndUpdate(submissionId, {
           status: result.status,

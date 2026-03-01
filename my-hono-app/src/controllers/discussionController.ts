@@ -55,8 +55,25 @@ export const getDiscussionbyUserByProblem = async (c: Context) => {
   }
 }
 
-// POST /api/problems/:id/discussions
+
 export const createDiscussion = async (c: Context) => {
+  const body = await c.req.json()
+  console.log("Received body:", body) // Debug log to check 
+  try {
+    const parsed = createDiscussionSchema.safeParse(body)
+    if (!parsed.success) {
+      return c.json({ message: "Validation error", errors: parsed.error.flatten().fieldErrors }, 400)
+    }
+    const discussion = await Discussion.create({ ...parsed.data, createdBy: body.createdBy, problem: null })
+    return c.json(discussion, 201)
+  } catch (error) {
+    console.error("Error creating discussion:", error) // 
+    return c.json({ message: error }, 500)
+  }
+}
+
+// POST /api/problems/:id/discussions
+export const createDiscussionProblem = async (c: Context) => {
   const problemId = c.req.param("id")
   try {
     const body = await c.req.json()

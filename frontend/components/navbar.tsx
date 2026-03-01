@@ -2,9 +2,10 @@
 import Link from "next/link"
 import { useRouter, usePathname } from "next/navigation"
 import { useSession, signOut } from "next-auth/react"
-import { Code2, LogOut, User, ChevronDown, Loader2 } from "lucide-react"
+import { Code2, LogOut, User, ChevronDown, Loader2, ShieldCheck } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Avatar } from "@/components/ui/avatar"
+import { ThemeToggle } from "@/components/theme-toggle"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -17,6 +18,7 @@ import { cn } from "@/lib/utils"
 
 const navLinks = [
   { href: "/problems", label: "Problems" },
+  { href: "/discussions", label: "Discuss" },
   { href: "/leaderboard", label: "Leaderboard" },
 ]
 
@@ -35,6 +37,7 @@ export function Navbar() {
           session.user.email ??
           "User",
         email: session.user.email ?? "",
+        isAdmin: (session.user as typeof session.user & { isAdmin?: boolean }).isAdmin ?? false,
       }
     : null
 
@@ -78,6 +81,8 @@ export function Navbar() {
 
         <div className="flex-1" />
 
+        <ThemeToggle />
+
         {/* Auth area */}
         {isLoading ? (
           <Loader2 className="size-4 animate-spin text-muted-foreground" />
@@ -104,6 +109,15 @@ export function Navbar() {
                 <User className="size-4" />
                 My Profile
               </DropdownMenuItem>
+              {user.isAdmin && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => router.push("/admin")}>
+                    <ShieldCheck className="size-4" />
+                    Admin Panel
+                  </DropdownMenuItem>
+                </>
+              )}
               <DropdownMenuSeparator />
               <DropdownMenuItem variant="destructive" onClick={handleLogout}>
                 <LogOut className="size-4" />

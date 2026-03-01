@@ -19,6 +19,8 @@ export interface Problem {
   sampleTestcases: Testcase[];
   createdBy: string;
   createdAt: string;
+  boilerplate?: Record<string, string>;
+  driverCode?: Record<string, string>;
 }
 
 export interface Testcase {
@@ -26,6 +28,15 @@ export interface Testcase {
   input: string;
   output: string;
   description?: string;
+}
+
+export interface TestResultItem {
+  input: string;
+  expectedOutput: string;
+  actualOutput: string;
+  passed: boolean;
+  runtime: number;
+  error?: string;
 }
 
 export interface Submission {
@@ -37,6 +48,16 @@ export interface Submission {
   memory: number;
   createdAt: string;
   problem: { _id: string; title: string; difficulty: string };
+  testResults?: TestResultItem[];
+}
+
+export interface ExecutionResult {
+  status: "accepted" | "wrong_answer" | "time_limit_exceeded" | "runtime_error" | "compilation_error";
+  results: TestResultItem[];
+  totalRuntime: number;
+  passedCount: number;
+  totalCount: number;
+  message?: string;
 }
 
 export interface User {
@@ -50,15 +71,17 @@ export interface User {
   solvedProblems: string[];
   xAccount?: string;
   linkedInAccount?: string;
+  isAdmin?: boolean;
 }
 
 export async function fetchProblems(params?: { difficulty?: string; tags?: string }): Promise<Problem[]> {
   const url = new URL(`${API_URL}/api/problems`);
   if (params?.difficulty) url.searchParams.set("difficulty", params.difficulty);
   if (params?.tags) url.searchParams.set("tags", params.tags);
-  const res = await fetch(url.toString());
+  const res = await fetch(url.toString(), { headers: getAuthHeaders() });
   if (!res.ok) throw new Error("Failed to fetch problems");
-  return res.json();
+  const data = await res.json();
+  return data.problems ?? data;
 }
 
 export async function fetchProblemById(id: string): Promise<Problem> {
@@ -101,7 +124,7 @@ export async function submitCode(
   code: string,
   language: string,
   userId: string
-): Promise<Submission> {
+): Promise<{ submissionId: string; queued: boolean }> {
   const res = await fetch(`${API_URL}/api/problems/${problemId}/submit`, {
     method: "POST",
     headers: getAuthHeaders(),
@@ -112,11 +135,19 @@ export async function submitCode(
   return data;
 }
 
+export async function fetchSubmissionById(id: string): Promise<Submission> {
+  const res = await fetch(`${API_URL}/api/submissions/${id}`, {
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) throw new Error("Failed to fetch submission");
+  return res.json();
+}
+
 export async function executeCode(
   problemId: string,
   code: string,
   language: string
-): Promise<{ message: string; results?: unknown }> {
+): Promise<ExecutionResult> {
   const res = await fetch(`${API_URL}/api/problems/${problemId}/execute`, {
     method: "POST",
     headers: getAuthHeaders(),
@@ -141,4 +172,179 @@ export async function fetchUserSubmissions(userId: string): Promise<Submission[]
   });
   if (!res.ok) throw new Error("Failed to fetch submissions");
   return res.json();
+}
+
+export interface Discussion {
+  _id: string;
+  title: string;
+  content: string;
+  createdBy: { _id: string; username: string; email: string };
+  problem: { _id: string; title: string } | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PaginatedDiscussions {
+  discussions: Discussion[];
+  total: number;
+  page: number;
+  totalPages: number;
+}
+
+export async function fetchDiscussionsPaginated(
+  page = 1,
+  limit = 15
+): Promise<PaginatedDiscussions> {
+  const res = await fetch(
+    `${API_URL}/api/discussions/paginate?page=${page}&limit=${limit}`,
+    { headers: getAuthHeaders() }
+  );
+  if (!res.ok) throw new Error("Failed to fetch discussions");
+  return res.json();
+}
+
+export async function searchDiscussions(query: string): Promise<Discussion[]> {
+  const url = new URL(`${API_URL}/api/discussions/search`);
+  url.searchParams.set("search", query);
+  const res = await fetch(url.toString(), { headers: getAuthHeaders() });
+  if (!res.ok) throw new Error("Failed to search discussions");
+  return res.json();
+}
+
+export async function fetchDiscussionById(id: string): Promise<Discussion> {
+  const res = await fetch(`${API_URL}/api/discussions/${id}`, {
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) throw new Error("Failed to fetch discussion");
+  return res.json();
+}
+
+export async function createDiscussion(data: { title: string; content: string; createdBy: string }): Promise<Discussion> {
+  const res = await fetch(`${API_URL}/api/discussions`, {
+    method: "POST",
+    headers: getAuthHeaders(),
+    body: JSON.stringify(data),
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.message || "Failed to create discussion");
+  return json;
+}
+
+export async function createDiscussionForProblem(
+  problemId: string,
+  data: { title: string; content: string; createdBy: string }
+): Promise<Discussion> {
+  const res = await fetch(`${API_URL}/api/problems/${problemId}/discussions`, {
+    method: "POST",
+    headers: getAuthHeaders(),
+    body: JSON.stringify(data),
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.message || "Failed to create discussion");
+  return json;
+}
+
+export async function fetchProblemDiscussions(problemId: string): Promise<Discussion[]> {
+  const res = await fetch(`${API_URL}/api/problems/${problemId}/discussions`, {
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) throw new Error("Failed to fetch problem discussions");
+  return res.json();
+}
+
+// ── Admin APIs ─────────────────────────────────────────────────────────────
+
+export interface TestcaseFull {
+  _id: string;
+  input: string;
+  output: string;
+  description?: string;
+  problem: string;
+  createdBy: string;
+}
+
+export async function adminCreateProblem(data: {
+  title: string;
+  description: string;
+  difficulty: "easy" | "medium" | "hard";
+  tags: string[];
+  constraits?: string;
+  createdBy: string;
+  boilerplate?: Record<string, string>;
+  driverCode?: Record<string, string>;
+}): Promise<Problem> {
+  const res = await fetch(`${API_URL}/api/admin/problems`, {
+    method: "POST",
+    headers: getAuthHeaders(),
+    body: JSON.stringify(data),
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.message || "Failed to create problem");
+  return json;
+}
+
+export async function adminUpdateProblem(
+  id: string,
+  data: Partial<{
+    title: string;
+    description: string;
+    difficulty: "easy" | "medium" | "hard";
+    tags: string[];
+    constraits: string;
+    boilerplate: Record<string, string>;
+    driverCode: Record<string, string>;
+  }>
+): Promise<Problem> {
+  const res = await fetch(`${API_URL}/api/admin/problems/${id}`, {
+    method: "PUT",
+    headers: getAuthHeaders(),
+    body: JSON.stringify(data),
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.message || "Failed to update problem");
+  return json;
+}
+
+export async function adminDeleteProblem(id: string): Promise<void> {
+  const res = await fetch(`${API_URL}/api/admin/problems/${id}`, {
+    method: "DELETE",
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) {
+    const json = await res.json();
+    throw new Error(json.message || "Failed to delete problem");
+  }
+}
+
+export async function fetchTestcasesByProblem(problemId: string): Promise<TestcaseFull[]> {
+  const res = await fetch(`${API_URL}/api/problems/${problemId}/testcases`, {
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) throw new Error("Failed to fetch testcases");
+  return res.json();
+}
+
+export async function adminCreateTestcase(
+  problemId: string,
+  data: { input: string; output: string; description?: string; createdBy: string }
+): Promise<TestcaseFull> {
+  const res = await fetch(`${API_URL}/api/admin/problems/${problemId}/testcases`, {
+    method: "POST",
+    headers: getAuthHeaders(),
+    body: JSON.stringify(data),
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.message || "Failed to create testcase");
+  return json;
+}
+
+export async function adminDeleteTestcase(id: string): Promise<void> {
+  const res = await fetch(`${API_URL}/api/admin/testcases/${id}`, {
+    method: "DELETE",
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) {
+    const json = await res.json();
+    throw new Error(json.message || "Failed to delete testcase");
+  }
 }

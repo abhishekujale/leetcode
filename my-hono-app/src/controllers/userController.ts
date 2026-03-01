@@ -57,11 +57,11 @@ export const registerUser = async (c: Context) => {
     const user = await User.create({ username, email, password: hashedPassword, name })
 
     const token = await sign(
-      { id: user._id.toString(), username: user.username, exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 },
+      { id: user._id.toString(), username: user.username, isAdmin: user.isAdmin ?? false, exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 },
       JWT_SECRET, "HS256"
     )
 
-    return c.json({ token, user: { id: user._id, username: user.username, email: user.email } }, 201)
+    return c.json({ token, user: { id: user._id, username: user.username, email: user.email, isAdmin: user.isAdmin ?? false } }, 201)
   } catch (error) {
     console.error("Register error:", error)
     return c.json({ message: "Error registering user" }, 500)
@@ -90,14 +90,76 @@ export const loginUser = async (c: Context) => {
     }
 
     const token = await sign(
-      { id: user._id.toString(), username: user.username, exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 },
+      { id: user._id.toString(), username: user.username, isAdmin: user.isAdmin ?? false, exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 },
       JWT_SECRET, "HS256"
     )
 
-    return c.json({ token, user: { id: user._id, username: user.username, email: user.email } }, 200)
+    return c.json({ token, user: { id: user._id, username: user.username, email: user.email, isAdmin: user.isAdmin ?? false } }, 200)
   } catch (error) {
     console.error("Login error:", error)
     return c.json({ message: "Error logging in" }, 500)
+  }
+}
+
+// POST /api/auth/oauth — find-or-create user for OAuth providers (Google, etc.)
+// Called by NextAuth's signIn callback; never requires a password.
+export const oauthSync = async (c: Context) => {
+  try {
+    const { email, name, provider, providerId } = await c.req.json()
+    if (!email || !provider || !providerId) {
+      return c.json({ message: "email, provider, and providerId are required" }, 400)
+    }
+
+    // Try to find existing user by email
+    let user = await User.findOne({ email })
+
+    if (!user) {
+      // Auto-generate a unique username from the email prefix
+      const base = email.split("@")[0].replace(/[^a-zA-Z0-9_]/g, "_").slice(0, 16)
+      let username = base
+      let n = 1
+      while (await User.findOne({ username })) {
+        username = `${base}${n++}`
+      }
+
+      user = await User.create({
+        email,
+        username,
+        name: name || username,
+        // Placeholder — OAuth users never authenticate with a password
+        password: `__oauth__:${provider}:${providerId}`,
+      })
+    }
+
+    const token = await sign(
+      { id: user._id.toString(), username: user.username, isAdmin: user.isAdmin ?? false, exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 },
+      JWT_SECRET,
+      "HS256"
+    )
+
+    return c.json({ token, user: { id: user._id, username: user.username, email: user.email, isAdmin: user.isAdmin ?? false } }, 200)
+  } catch (error) {
+    console.error("oauthSync error:", error)
+    return c.json({ message: "Error syncing OAuth user" }, 500)
+  }
+}
+
+// POST /api/auth/setup-admin  (requires X-Admin-Secret header)
+export const setupAdmin = async (c: Context) => {
+  const secret = c.req.header("X-Admin-Secret")
+  const adminSecret = process.env.ADMIN_SECRET
+  if (!adminSecret || secret !== adminSecret) {
+    return c.json({ message: "Invalid or missing admin secret" }, 403)
+  }
+  try {
+    const { email } = await c.req.json()
+    if (!email) return c.json({ message: "email is required" }, 400)
+    const user = await User.findOneAndUpdate({ email }, { isAdmin: true }, { new: true })
+    console.log("Admin setup:", { email, user })
+    if (!user) return c.json({ message: "User not found" }, 404)
+    return c.json({ message: "User promoted to admin", user: { id: user._id, email: user.email, username: user.username, isAdmin: true } }, 200)
+  } catch (error) {
+    return c.json({ message: "Error promoting user" }, 500)
   }
 }
 

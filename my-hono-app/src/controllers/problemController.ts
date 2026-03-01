@@ -1,6 +1,7 @@
 import type { Context } from "hono"
 import { Problem } from "../models/Problem.js"
-import { cacheGet, cacheSet, cacheDel } from "../config/redis.js"
+import { Testcase } from "../models/Testcase.js"
+import { cacheGet, cacheSet, cacheDel, cacheDelPattern } from "../config/redis.js"
 import { createProblemSchema, updateProblemSchema, executeCodeSchema } from "../validators/schemas.js"
 import { executeCode, type Language } from "../services/codeExecutor.js"
 
@@ -50,12 +51,16 @@ export const getProblemById = async (c: Context) => {
       return c.json(JSON.parse(cached), 200)
     }
 
-    const problem = await Problem.findById(id).populate("sampleTestcases")
+    const [problem, sampleTestcases] = await Promise.all([
+      Problem.findById(id).lean(),
+      Testcase.find({ problem: id }).limit(2).select("input output description").lean(),
+    ])
     if (!problem) return c.json({ message: "Problem not found" }, 404)
 
-    await cacheSet(cacheKey, JSON.stringify(problem), 300) // 5 min TTL
+    const result = { ...problem, sampleTestcases }
+    await cacheSet(cacheKey, JSON.stringify(result), 300) // 5 min TTL
     c.header("X-Cache", "MISS")
-    return c.json(problem, 200)
+    return c.json(result, 200)
   } catch (error) {
     return c.json({ message: "Unable to fetch problem" }, 500)
   }
@@ -70,6 +75,7 @@ export const createProblem = async (c: Context) => {
       return c.json({ message: "Validation error", errors: parsed.error.flatten().fieldErrors }, 400)
     }
     const problem = await Problem.create(parsed.data)
+    await cacheDelPattern("problems:*")
     return c.json(problem, 201)
   } catch (error) {
     console.error("createProblem error:", error)
@@ -80,15 +86,21 @@ export const createProblem = async (c: Context) => {
 // PUT /api/problems/:id
 export const updateProblem = async (c: Context) => {
   const id = c.req.param("id")
+  // console.log("Updating problem with ID:", id) // Debug log to check ID
   try {
     const body = await c.req.json()
+    console.log("Updating problem with ID: 1", id) // Debug log to check ID
+
     const parsed = updateProblemSchema.safeParse(body)
+    console.log("Updating problem with ID: 2", id) // Debug log to check ID
+
     if (!parsed.success) {
       return c.json({ message: "Validation error", errors: parsed.error.flatten().fieldErrors }, 400)
     }
+    console.log("Proble updating");
     const problem = await Problem.findByIdAndUpdate(id, parsed.data, { new: true })
     if (!problem) return c.json({ message: "Problem not found" }, 404)
-    await cacheDel(`problem:${id}`)
+    await Promise.all([cacheDel(`problem:${id}`), cacheDelPattern("problems:*")])
     return c.json(problem, 200)
   } catch (error) {
     return c.json({ message: "Error updating problem" }, 500)
@@ -101,7 +113,7 @@ export const deleteProblem = async (c: Context) => {
   try {
     const problem = await Problem.findByIdAndDelete(id)
     if (!problem) return c.json({ message: "Problem not found" }, 404)
-    await cacheDel(`problem:${id}`)
+    await Promise.all([cacheDel(`problem:${id}`), cacheDelPattern("problems:*")])
     return c.json({ message: "Problem deleted successfully" }, 200)
   } catch (error) {
     return c.json({ message: "Error deleting problem" }, 500)
@@ -119,19 +131,19 @@ export const runProblem = async (c: Context) => {
     }
     const { code, language } = parsed.data
 
-    const problem = await Problem.findById(id).populate("sampleTestcases")
+    const [problem, sampleTestcases] = await Promise.all([
+      Problem.findById(id).lean(),
+      Testcase.find({ problem: id }).limit(2).select("input output").lean(),
+    ])
     if (!problem) return c.json({ message: "Problem not found" }, 404)
 
-    const testcases = (problem.sampleTestcases as Array<{ input: string; output: string }>).map((tc) => ({
-      input: tc.input,
-      output: tc.output,
-    }))
-
-    if (testcases.length === 0) {
+    if (sampleTestcases.length === 0) {
       return c.json({ message: "No sample testcases available for this problem" }, 422)
     }
 
-    const result = await executeCode(code, language as Language, testcases)
+    const driverCode = ((problem as any).driverCode as Record<string, string> | undefined)?.[language]
+
+    const result = await executeCode(code, language as Language, sampleTestcases.map((tc) => ({ input: tc.input, output: tc.output })), driverCode)
     return c.json(result, 200)
   } catch (error) {
     console.error("runProblem error:", error)

@@ -28,9 +28,78 @@ export interface ExecutionResult {
   message?: string
 }
 
-const TIMEOUT_MS = 5_000       // 5 seconds per test case
-const COMPILE_TIMEOUT = 15_000 // 15 seconds for compilation
+const TIMEOUT_MS = 5_000       // 5 s per test case
+const COMPILE_TIMEOUT = 15_000 // 15 s for compilation
 
+// ── Harness generators ────────────────────────────────────────────────────
+// Convention: each argument is one JSON line in stdin.
+// e.g.  twoSum([2,7,11,15], 9)  →  stdin = "[2,7,11,15]\n9\n"
+//       expected stdout         =  "[0,1]"
+
+const JS_HARNESS = `
+// ── Judge harness ─────────────────────────────────────────────────────────
+process.stdin.resume();
+process.stdin.setEncoding("utf8");
+let __inp = "";
+process.stdin.on("data", d => (__inp += d));
+process.stdin.on("end", () => {
+  try {
+    const __args = __inp.trim().split("\\n").map(l => {
+      try { return JSON.parse(l); } catch { return l; }
+    });
+    const __res = solution(...__args);
+    process.stdout.write(JSON.stringify(__res) + "\\n");
+  } catch (e) {
+    process.stderr.write((e instanceof Error ? e.message : String(e)) + "\\n");
+    process.exit(1);
+  }
+});
+`
+
+const PY_HARNESS = `
+
+# ── Judge harness ─────────────────────────────────────────────────────────
+import sys as __sys
+import json as __json
+
+__lines = __sys.stdin.read().strip().split('\\n')
+__args = []
+for __l in __lines:
+    try:
+        __args.append(__json.loads(__l))
+    except Exception:
+        __args.append(__l)
+try:
+    __res = solution(*__args)
+    print(__json.dumps(__res))
+except Exception as __e:
+    __sys.stderr.write(str(__e) + '\\n')
+    __sys.exit(1)
+`
+
+function wrapWithHarness(code: string, language: Language): string {
+  if (language === "javascript" || language === "typescript") {
+    return code + "\n" + JS_HARNESS
+  }
+  if (language === "python") {
+    return code + PY_HARNESS
+  }
+  // Java / C++ / Go — user writes the full program with their own I/O
+  return code
+}
+
+// ── Output normalisation ──────────────────────────────────────────────────
+// Try JSON-parse both sides so "[0,1]" == "[ 0, 1 ]"
+function normalizeOutput(s: string): string {
+  const t = s.trim()
+  try {
+    return JSON.stringify(JSON.parse(t))
+  } catch {
+    return t
+  }
+}
+
+// ── Process runner ────────────────────────────────────────────────────────
 function runProcess(
   command: string,
   args: string[],
@@ -73,6 +142,7 @@ function runProcess(
   })
 }
 
+// ── Compiler helper ───────────────────────────────────────────────────────
 function compile(command: string, args: string[]): Promise<string | null> {
   return new Promise((resolve) => {
     const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] })
@@ -86,38 +156,54 @@ function compile(command: string, args: string[]): Promise<string | null> {
   })
 }
 
+// ── Main executor ─────────────────────────────────────────────────────────
 export async function executeCode(
   code: string,
   language: Language,
-  testcases: Array<{ input: string; output: string }>
+  testcases: Array<{ input: string; output: string }>,
+  driverCode?: string
 ): Promise<ExecutionResult> {
   const tmpDir = mkdtempSync(join(tmpdir(), "leetclone-"))
 
   try {
-    // ── Write code & optionally compile ─────────────────────────────────
+    // If the admin configured a per-problem driver code, inject user code into it.
+    // Otherwise fall back to the generic harness wrapper.
+    const wrapped = driverCode
+      ? driverCode.replace("{{USER_CODE}}", code)
+      : wrapWithHarness(code, language)
     let compilationError: string | null = null
 
+    // Java: filename must match the public class name — detect it from the source
+    let javaClassName = "Solution"
+
     if (language === "java") {
-      writeFileSync(join(tmpDir, "Solution.java"), code)
-      compilationError = await compile("javac", [join(tmpDir, "Solution.java")])
+      const match = wrapped.match(/public\s+class\s+(\w+)/)
+      if (match) javaClassName = match[1]
+      const javaFile = join(tmpDir, `${javaClassName}.java`)
+      writeFileSync(javaFile, wrapped)
+      compilationError = await compile("javac", [javaFile])
     } else if (language === "cpp") {
-      writeFileSync(join(tmpDir, "solution.cpp"), code)
+      writeFileSync(join(tmpDir, "solution.cpp"), wrapped)
       compilationError = await compile("g++", [
         "-O2", "-std=c++17",
         "-o", join(tmpDir, "solution"),
         join(tmpDir, "solution.cpp"),
       ])
     } else if (language === "typescript") {
-      writeFileSync(join(tmpDir, "solution.ts"), code)
+      // Write harness-wrapped TS, compile to JS, then run the JS
+      writeFileSync(join(tmpDir, "solution.ts"), wrapped)
       compilationError = await compile("npx", [
         "--yes", "esbuild",
         join(tmpDir, "solution.ts"),
         "--outfile=" + join(tmpDir, "solution.js"),
         "--platform=node",
       ])
-    } else {
-      const exts: Record<string, string> = { javascript: ".js", python: ".py", go: ".go" }
-      writeFileSync(join(tmpDir, `solution${exts[language] ?? ".txt"}`), code)
+    } else if (language === "javascript") {
+      writeFileSync(join(tmpDir, "solution.js"), wrapped)
+    } else if (language === "python") {
+      writeFileSync(join(tmpDir, "solution.py"), wrapped)
+    } else if (language === "go") {
+      writeFileSync(join(tmpDir, "solution.go"), wrapped)
     }
 
     if (compilationError) {
@@ -131,7 +217,7 @@ export async function executeCode(
       }
     }
 
-    // ── Run against each test case ───────────────────────────────────────
+    // ── Run against each test case ────────────────────────────────────────
     const results: TestResult[] = []
 
     for (const tc of testcases) {
@@ -143,14 +229,12 @@ export async function executeCode(
       try {
         let res: { stdout: string; stderr: string; runtime: number }
 
-        if (language === "javascript") {
-          res = await runProcess("node", [join(tmpDir, "solution.js")], tc.input)
-        } else if (language === "typescript") {
+        if (language === "javascript" || language === "typescript") {
           res = await runProcess("node", [join(tmpDir, "solution.js")], tc.input)
         } else if (language === "python") {
           res = await runProcess("python3", [join(tmpDir, "solution.py")], tc.input)
         } else if (language === "java") {
-          res = await runProcess("java", ["-cp", tmpDir, "Solution"], tc.input)
+          res = await runProcess("java", ["-cp", tmpDir, javaClassName], tc.input)
         } else if (language === "cpp") {
           res = await runProcess(join(tmpDir, "solution"), [], tc.input)
         } else if (language === "go") {
@@ -161,7 +245,13 @@ export async function executeCode(
 
         actualOutput = res.stdout
         runtime = res.runtime
-        passed = actualOutput === tc.output.trim()
+
+        // Warn about stderr but don't fail (some solutions print debug info)
+        if (!actualOutput && res.stderr) {
+          error = res.stderr
+        }
+
+        passed = normalizeOutput(actualOutput) === normalizeOutput(tc.output)
       } catch (err: any) {
         if (err.killed || err.signal === "SIGTERM" || err.code === "ETIMEDOUT") {
           error = "Time Limit Exceeded"
@@ -172,10 +262,17 @@ export async function executeCode(
         passed = false
       }
 
-      results.push({ input: tc.input, expectedOutput: tc.output, actualOutput, passed, runtime, error })
+      results.push({
+        input: tc.input,
+        expectedOutput: tc.output,
+        actualOutput,
+        passed,
+        runtime,
+        ...(error ? { error } : {}),
+      })
 
       // Stop early on TLE or runtime error
-      if (error && (error.includes("Time Limit") || !error.includes("wrong"))) {
+      if (error && error !== "Time Limit Exceeded" && results.length < testcases.length) {
         const remaining = testcases.slice(results.length)
         for (const r of remaining) {
           results.push({
@@ -191,11 +288,11 @@ export async function executeCode(
       }
     }
 
-    // ── Determine final status ───────────────────────────────────────────
+    // ── Final verdict ─────────────────────────────────────────────────────
     const passedCount = results.filter((r) => r.passed).length
-    const hasTLE = results.some((r) => r.error?.includes("Time Limit"))
+    const hasTLE = results.some((r) => r.error === "Time Limit Exceeded")
     const hasRTE = results.some(
-      (r) => r.error && !r.error.includes("Time Limit") && !r.error.includes("Not executed")
+      (r) => r.error && r.error !== "Time Limit Exceeded" && r.error !== "Not executed"
     )
     const allPassed = passedCount === testcases.length
 

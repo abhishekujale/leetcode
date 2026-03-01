@@ -1,30 +1,21 @@
 import type { Context, Next } from "hono"
 import { verify } from "hono/jwt"
 
-const PUBLIC_PATHS = [
-  "/",
-  "/api/auth/register",
-  "/api/auth/login",
-  "/api/auth/oauth",
-  "/api/auth/setup-admin",
-]
-
-export const authMiddleware = async (c: Context, next: Next) => {
-  if (PUBLIC_PATHS.includes(c.req.path)) {
-    return await next()
-  }
-
+export const adminMiddleware = async (c: Context, next: Next) => {
   const authHeader = c.req.header("Authorization")
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return c.json({ message: "Unauthorized: no token provided" }, 401)
+    return c.json({ message: "Unauthorized" }, 401)
   }
 
   const token = authHeader.split(" ")[1]
   try {
     const payload = await verify(token, process.env.JWT_SECRET || "secret", "HS256")
+    if (!payload.isAdmin) {
+      return c.json({ message: "Forbidden: admin access required" }, 403)
+    }
     c.set("user", payload)
     await next()
-  } catch (error) {
+  } catch {
     return c.json({ message: "Unauthorized: invalid or expired token" }, 401)
   }
 }
